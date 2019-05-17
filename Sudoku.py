@@ -2,8 +2,10 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from UI.SudokuMain import Ui_MainWindow
 
+import numpy as np
 import sys
 import math
+import time
 
 
 class Point:
@@ -15,8 +17,13 @@ class Point:
         self.row += x
         self.column += y
 
+    def __eq__(self, other):
+        if isinstance(other, Point):
+            return self.row == other.row and self.column == other.column
+        return False
+
     def __repr__(self):
-        return "".join(["P(", str(self.row+1), ",", str(self.column+1), ")"])
+        return "".join(["P(", str(self.row + 1), ",", str(self.column + 1), ")"])
 
 
 class WindowSudoku(QtWidgets.QMainWindow):
@@ -33,67 +40,72 @@ class WindowSudoku(QtWidgets.QMainWindow):
         if e.key() == Qt.Key_Escape:
             self.close()
         if 49 <= e.key() <= 57:
-            change_value(str(e.key()-48), cur_loc.row, cur_loc.column)
+            if legal_next(e.key()-48, cur_loc):
+                change_value(e.key()-48, cur_loc)
+        if e.key() == Qt.Key_Delete:
+            delete_value(cur_loc)
         if e.key() == Qt.Key_Left:
-                change_cur_loc(0, -1)
+            change_cur_loc(0, -1)
         if e.key() == Qt.Key_Right:
-                change_cur_loc(0, 1)
+            change_cur_loc(0, 1)
         if e.key() == Qt.Key_Up:
-                change_cur_loc(-1, 0)
+            change_cur_loc(-1, 0)
         if e.key() == Qt.Key_Down:
-                change_cur_loc(1, 0)
+            change_cur_loc(1, 0)
 
-    def btn_clicked(self):
-        self.ui.TEST.setText(str(self.ui.centralwidget.geometry()))
+    @staticmethod
+    def btn_clicked():
+        start_time = time.time()
         solve()
+        print(f'Time it took to solve the Sudoku: {time.time() - start_time} seconds')
 
 
-def legal_next(value, row, column):
+def legal_next(value, loc):
     """
+
     finds out if the given value is legal in the current sudoku
     :param value: the value that has been entered and is checked for legality
-    :param row: the values row [1..8]
-    :param column: the values column [1..8]
+    :param loc: the location of the cell where the value wants to go
     :return: true if the next combination in the sudoku is legal
     """
-
-    if value in lsts_col.__getitem__(column):
+    if (application.ui.__getattribute__(f'cell{loc.column+1}{loc.row+1}')).text() != "":
         return False
-    if value in lsts_row.__getitem__(row):
+    if value in sudoku_grid[:, loc.column]:
         return False
-    block_num = 3 * math.floor(column / 3) + math.floor(row / 3)
-    if value in lsts_block.__getitem__(block_num):
+    if value in sudoku_grid[loc.row]:
         return False
+    i_offset = math.floor(loc.row / 3)
+    j_offset = math.floor(loc.column / 3)
+    for i in range(3):
+        for j in range(3):
+            if Point(i + 3*i_offset, j + 3*j_offset) != loc and sudoku_grid[i + 3*i_offset, j + 3*j_offset] == value:
+                return False
     return True
 
 
-def change_value(value, row, column):
+def change_value(value, loc):
     """
     Takes the given value and attempts to put it in the cell that is given
-    :param value: the value to be entered in the current cell
-    :param row: the row of the cell in which the value should go
-    :param column: the column of the cell in which the value should go
+    :param value: the value to be entered in the given cell
+    :param loc: the location of the cell where the value goes
     """
-    (application.ui.__getattribute__(f'cell{column+1}{row+1}')).setText(str(value))
-    (lsts_row.__getitem__(row)).append(value)
-    (lsts_col.__getitem__(column)).append(value)
-    block_num = 3 * math.floor(column / 3) + math.floor(row / 3)
-    (lsts_block.__getitem__(block_num)).append(value)
+    (application.ui.__getattribute__(f'cell{loc.column+1}{loc.row+1}')).setText(str(value))
+    sudoku_grid[loc.row, loc.column] = value
     global cnt_free_cells
     cnt_free_cells -= 1
-    print(f'Placed {value} at ({row+1},{column+1})')
+    # print(f'Placed {value} at {loc}')
 
 
 def delete_value(loc):
-    value = (application.ui.__getattribute__(f'cell{loc.column+1}{loc.row+1}')).text()
+    """
+    Deletes the value at the given location
+
+    :param loc: of the value that is to be deleted
+    """
     (application.ui.__getattribute__(f'cell{loc.column+1}{loc.row+1}')).setText("")
-    (lsts_row.__getitem__(loc.row)).remove(int(value))
-    (lsts_col.__getitem__(loc.column)).remove(int(value))
-    block_num = 3 * math.floor(loc.column / 3) + math.floor(loc.row / 3)
-    (lsts_block.__getitem__(block_num)).remove(int(value))
+    sudoku_grid[loc.row, loc.column] = 0
     global cnt_free_cells
     cnt_free_cells += 1
-    #print(f'Removed {value} at ({loc.row+1},{loc.column+1})')
 
 
 def change_cur_loc(row_change, column_change):
@@ -112,13 +124,26 @@ def change_cur_loc(row_change, column_change):
 
 
 def solve():
+    """
+    Solves the Sudoku
+    """
     make_free_cell_list()
-    print(lst_free_cells)
-    test_cell(0)
-    print(f'done')
+    # print(lst_free_cells)
+    stop = False
+    ret_val = 0
+    while not stop:
+        temp_val = test_cell(ret_val)
+        ret_val += temp_val
+        if temp_val == 5:
+            stop = True
+    print(f'Done solving')
+    print(f'Times a cell has been tested: {cell_cnt}')
 
 
 def make_free_cell_list():
+    """
+    Goes through the UI and saves the cells with no entries in the global list lst_free_cells
+    """
     for row in range(9):
         for col in range(9):
             if (application.ui.__getattribute__(f'cell{col+1}{row+1}')).text() == "":
@@ -126,39 +151,44 @@ def make_free_cell_list():
 
 
 def test_cell(index):
-    global rc_cnt
-    rc_cnt += 1
-    print(rc_cnt)
-    loc = lst_free_cells.__getitem__(index)
+    """
+    Tests a cell from the list of free cells (lst_free_cells) whether the next number is legal in that cell
+    :param index: the current index in the list of free cells
+    :return: -1: go to previous cell (1-9 has been tested, none are legal)
+              0: stay in this cell (test the next number in future iteration)
+              1: go to next cell (legal number for this cell has been found)
+              5: stop algorithm (either first cell has no legal number or solution has been found)
+    """
+    global cell_cnt
+    cell_cnt += 1
+    loc = lst_free_cells[index]
     cell_text = (application.ui.__getattribute__(f'cell{loc.column+1}{loc.row+1}')).text()
-    #print(f'starting to test {cell_text} at {loc}')
-    if cell_text == "":
+    # print(f'starting to test {cell_text} at {loc}')
+    if cell_text == "":  # no value in the cell yet
         val = 1
-    elif 0 < int(cell_text) < 9:
+    elif 0 < int(cell_text) < 9:  # value in the cell, get the next higher number to test
         delete_value(loc)
         val = int(cell_text) + 1
-    else:
+    else:  # cell contains 9, so go back, if at first cell -> not solvable
         if index == 0:
-            print("no solution")
-            return
+            print("Go solution")
+            return 5
         else:
-            print(f'going back')
+            print(f'No legal move at '
+                  f'{loc}')
             delete_value(loc)
-            test_cell(index-1)
-    if legal_next(val, loc.row, loc.column):
-        change_value(val, loc.row, loc.column)
+            return -1
+    if legal_next(val, loc):
+        change_value(val, loc)
         if index == len(lst_free_cells) - 1:
-            print(f'Done solving')
-            for rows in range(9):
-                lst_temp = []
-                for cols in range(9):
-                    lst_temp.append((application.ui.__getattribute__(f'cell{cols+1}{rows+1}')).text())
-                print(lst_temp)
+            # done solving
+            return 5
         else:
-            test_cell(index + 1)
+            print(f'Placed {val} at {loc}')
+            return 1
     else:
-        change_value(val, loc.row, loc.column)
-        test_cell(index)
+        change_value(val, loc)
+        return 0
 
 
 def import_sudoku(lst_temp):
@@ -168,10 +198,11 @@ def import_sudoku(lst_temp):
     temp_index = 0
     for row in range(9):
         for col in range(9):
-            val = lst_temp.__getitem__(temp_index)
+            val = lst_temp[temp_index]
             if val != 0:
-                change_value(val, row, col)
+                change_value(val, Point(row, col))
             temp_index += 1
+
 
 """
 initializing window
@@ -179,53 +210,30 @@ initializing window
 app = QtWidgets.QApplication([sys.argv])
 application = WindowSudoku()
 
-lsts_col = [[], [], [], [], [], [], [], [], [], []]
-lsts_row = [[], [], [], [], [], [], [], [], [], []]
-lsts_block = [[], [], [], [], [], [], [], [], [], []]
 
+"""
+initializing variables
+"""
+sudoku_grid = np.zeros((9, 9))
 cur_loc = Point(0, 0)
 lst_free_cells = []
 cnt_free_cells = 81
 
-"""
-insert random value for cells
-for row in range(9):
-    for column in range(9):
-        change_value(str(random.randint(1, 9)), row, column)
-"""
-lst_import = [0,0,9,0,1,0,0,4,3,
-              6,0,1,4,0,0,0,0,0,
-              0,0,0,3,5,0,0,0,6,
-              0,0,0,0,0,0,0,9,1,
-              0,0,6,0,4,0,8,0,0,
-              8,1,0,0,0,0,0,0,0,
-              4,0,0,0,7,2,0,0,0,
-              0,0,0,0,0,4,7,0,9,
-              2,9,0,0,8,0,5,0,0]
-
-"""
-initializing variables
-if __name__ == '__main__':
-    sys.setrecursionlimit(100000)
-    threading.stack_size(200000000)
-    thread = threading.Thread(target=your_code)
-    thread.start()
-"""
-change_cur_loc(0, 0)
+lst_import = [4,7,0,0,0,0,6,0,8,
+              0,6,2,0,0,0,0,4,0,
+              0,0,0,0,0,4,2,0,1,
+              8,9,0,5,0,6,0,3,7,
+              0,0,6,0,0,0,8,0,5,
+              0,0,0,0,0,1,0,0,2,
+              9,0,0,0,0,0,5,8,0,
+              6,8,7,0,0,0,0,0,0,
+              0,5,0,0,6,3,0,0,0]
+change_cur_loc(0, 0)  # essentially only to set the colour, so that user sees what cell is selected
 import_sudoku(lst_import)
-rc_cnt = 0
-sys.setrecursionlimit(10000)
-#resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
-#resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
-
-
-"""
-tests
-"""
+cell_cnt = 0
 
 """
 showing window
 """
 application.show()
 sys.exit(app.exec())
-
